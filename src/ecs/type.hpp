@@ -36,6 +36,9 @@ constexpr std::size_t GetTypeId() noexcept {
 
     return internal::fnv1a_64(sig);
 }
+
+template <typename T>
+constexpr std::size_t type_id_k = GetTypeId<T>();
 } // namespace ecs
 
 #endif // TYPE_HPP

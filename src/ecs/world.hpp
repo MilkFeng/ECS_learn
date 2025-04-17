@@ -45,7 +45,7 @@ private:
     Registry<Entity> registry_{};
 
     // 由于每个 System 都有可能访问 commands，所以它必须是线程安全的
-    Commands<Entity> commands_{*this}; // 大括号风格的初始化可以避免显式调用构造函数，不需要前向声明
+    Commands<Entity> commands_{*this};
 
     // viewer 是用来遍历实体和组件的，应该让用户不要直接使用 registry
     Viewer<Entity> viewer_{*this};

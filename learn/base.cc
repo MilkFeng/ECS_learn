@@ -1,7 +1,13 @@
+#include <cstdint>
 #include <deque>
 #include <functional>
 #include <iostream>
+#include <list>
+#include <memory>
 #include <vector>
+
+#include <bits/stl_uninitialized.h>
+
 
 class Base {
 public:
@@ -26,6 +32,8 @@ public:
         Base::run();
     }
 };
+
+class AAA;
 
 
 class background_task {
@@ -75,12 +83,10 @@ public:
 
 template <typename T>
 void f1(T param) {
-
 }
 
 template <typename T>
 void f2(T& param) {
-
 }
 
 template <typename T>
@@ -89,23 +95,107 @@ void f3(T&& param) {
 }
 
 void func2(int, double) {
-
 }
 
+class Test {
+public:
+    void* operator new(std::size_t) = delete;
+};
+
+struct alignas(64) AlignTest {
+    uint8_t a; // 1
+    __uint128_t b; // 16
+};
+
+
+struct SSS {
+    int x;
+
+private:
+    int y = 2;
+};
+
+int&& rref() {
+    static int a{3};
+    return static_cast<int&&>(a);
+}
+
+template <typename T>
+constexpr bool is_smaller_than_pointer_v = sizeof(std::decay_t<T>) < sizeof(std::decay_t<T>*);
+
+template <typename T>
+using enable_if_smaller_than_pointer_t = std::enable_if_t<is_smaller_than_pointer_v<T>>;
+
+template <typename T>
+using enable_if_not_smaller_than_pointer_t = std::enable_if_t<!is_smaller_than_pointer_v<T>>;
+
+template <typename T, typename = enable_if_smaller_than_pointer_t<T>>
+void print(T t) {
+    std::cout << "print(T t)" << std::endl;
+}
+
+template <typename T, typename = enable_if_not_smaller_than_pointer_t<T>>
+void print(const T& t) {
+    std::cout << "print(const T& t)" << std::endl;
+}
+
+extern const int x;
 
 int main() {
-    Derived der;
-    der.run();
+    // Derived der;
+    // der.run();
+    //
+    // Base* b = &der;
+    // b->run();
+    //
+    // // f();
+    //
+    // Stack<int, AInt> t{};
+    // Stack<int, std::vector> t2;
+    //
+    // f3(func2);
 
-    Base* b = &der;
-    b->run();
+    std::cout << x << std::endl;
 
-    // f();
 
-    Stack<int, AInt> t{};
-    Stack<int, std::vector> t2;
+    AlignTest a;
+    std::cout << "sizeof(AlignTest): " << sizeof(AlignTest) << std::endl;
+    std::cout << "alignof(AlignTest): " << alignof(AlignTest) << std::endl;
+    std::cout << "offsetof(AlignTest, a): " << offsetof(AlignTest, a) << std::endl;
+    std::cout << "offsetof(AlignTest, b): " << offsetof(AlignTest, b) << std::endl;
 
-    f3(func2);
+
+    auto squared = [](auto val) {
+        return val * val;
+    };
+
+    auto* pp = &rref;
+    int x = 42; // x 是 int，值是 42
+
+    int&& y = std::move(x); // 亡值
+
+    std::shared_ptr<int> ptr(new int(10));
+    std::unique_ptr<int> uptr(new int(10));
+
+    std::string_view str = "hello";
+
+    std::function<int()> f;
+
+    std::vector<bool> v{false, true};
+
+    auto r = v[1];
+    r = false;
+
+    std::reverse_iterator<std::list<int>::iterator> u;
+
+    int arr[10];
+    int (&rarr)[10] = arr;
+
+    print(42);
+    print(42.0);
+    print("hello");
+    print(3.14f);
+    print(std::string("hello"));
 
     return 0;
 }

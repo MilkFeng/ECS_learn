@@ -222,10 +222,6 @@ public:
 
     ~Commands() = default;
 
-    constexpr void SetWorld(WorldType& world) {
-        world_ = &world;
-    }
-
     template <AllowedComponentType... Components>
     constexpr Commands& Spawn(Components... components) {
         Command<Entity> command = internal::SpawnCommand<Entity, Components...>(components...);
