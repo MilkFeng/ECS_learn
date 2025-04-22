@@ -4,7 +4,7 @@
 
 using namespace ecs;
 
-using SchedulerType = Scheduler<>;
+using SchedulerType = StageScheduler<>;
 using SystemGraphType = typename SchedulerType::SystemGraphType;
 using SystemType = typename SystemGraphType::SystemType;
 

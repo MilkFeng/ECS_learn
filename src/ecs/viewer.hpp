@@ -5,27 +5,67 @@
 #include "world.hpp"
 
 namespace ecs {
-namespace internal {
-template <AllowedEntityType Entity, AllowedComponentType... Components>
-class ViewIterator {
-};
-} // namespace internal
-
 template <AllowedEntityType Entity>
 class Viewer;
 
 /// 视图类，用于遍历选定的组件和实体
 ///
 /// @tparam Entity 实体类型
+/// @tparam WithEntity 是否包含实体 ID
 /// @tparam Required 必须的组件类型
 /// @tparam Optional 可选的组件类型
 /// @tparam Exclude 排除的组件类型
 ///
 template <AllowedEntityType Entity,
+    const bool WithEntity,
     AllowedUniqueComponentsTupleType Required = std::tuple<>,
     AllowedUniqueComponentsTupleType Optional = std::tuple<>,
     AllowedUniqueComponentsTupleType Exclude = std::tuple<>>
 class View;
+
+namespace internal {
+template <typename View>
+class ViewIterator {
+public:
+    using view_type = View;
+
+    using iterator_category = std::input_iterator_tag;
+    using value_type = typename view_type::ReturnTupleType;
+
+    constexpr explicit ViewIterator(view_type& view, const bool is_end = false) noexcept
+        : view_(view), is_end_(is_end) {
+        if (!is_end_) {
+            value_ = view.Next();
+        }
+    }
+
+    constexpr value_type operator*() const {
+        return value_.value();
+    }
+
+    constexpr ViewIterator& operator++() {
+        if (is_end_) {
+            return *this;
+        }
+
+        value_ = view_.Next();
+        if (!value_) {
+            is_end_ = true;
+        }
+        return *this;
+    }
+
+    bool operator!=(const ViewIterator&) const {
+        return value_.has_value();
+    }
+
+private:
+    view_type& view_;
+    bool is_end_;
+
+    std::optional<value_type> value_;
+};
+} // namespace internal
 
 template <AllowedEntityType Entity>
 class Viewer {
@@ -33,13 +73,28 @@ public:
     using WorldType = World<Entity>;
     using ComponentTypeId = std::size_t;
 
+    template <AllowedUniqueComponentsTupleType Required,
+        AllowedUniqueComponentsTupleType Optional,
+        AllowedUniqueComponentsTupleType Exclude>
+    using ViewWithoutEntityType = View<Entity, false, Required, Optional, Exclude>;
+
+    template <AllowedUniqueComponentsTupleType Required,
+        AllowedUniqueComponentsTupleType Optional,
+        AllowedUniqueComponentsTupleType Exclude>
+    using ViewWithEntityType = View<Entity, true, Required, Optional, Exclude>;
+
     template <AllowedUniqueComponentsTupleType Required = std::tuple<>,
         AllowedUniqueComponentsTupleType Optional = std::tuple<>,
         AllowedUniqueComponentsTupleType Exclude = std::tuple<>>
-    [[nodiscard]] constexpr View<Entity, Required, Optional, Exclude> View() {
-        static_assert(!CheckDuplicateComponentsTuple<Required, Optional, Exclude>(),
-                      "Viewer: Duplicate components in Required, Optional or Exclude");
-        return ecs::View<Entity, Required, Optional, Exclude>{*this};
+    [[nodiscard]] constexpr ViewWithoutEntityType<Required, Optional, Exclude> View() {
+        return ViewWithoutEntityType<Required, Optional, Exclude>{*this};
+    }
+
+    template <AllowedUniqueComponentsTupleType Required = std::tuple<>,
+        AllowedUniqueComponentsTupleType Optional = std::tuple<>,
+        AllowedUniqueComponentsTupleType Exclude = std::tuple<>>
+    [[nodiscard]] constexpr ViewWithEntityType<Required, Optional, Exclude> ViewWithEntity() {
+        return ViewWithEntityType<Required, Optional, Exclude>{*this};
     }
 
 private:
@@ -57,6 +112,7 @@ private:
     friend class World<Entity>;
 
     template <AllowedEntityType Entity2,
+        const bool WithEntity,
         AllowedUniqueComponentsTupleType Required,
         AllowedUniqueComponentsTupleType Optional,
         AllowedUniqueComponentsTupleType Exclude>
@@ -71,12 +127,14 @@ template <AllowedEntityType Entity,
     AllowedUniqueComponentsTupleType Required,
     AllowedUniqueComponentsTupleType Optional,
     AllowedUniqueComponentsTupleType Exclude>
-class View {
+class View<Entity, false, Required, Optional, Exclude> {
     static_assert(!CheckDuplicateComponentsTuple<Required, Optional, Exclude>(),
                   "View: Duplicate components in Required, Optional or Exclude");
 
 public:
     using ViewerType = Viewer<Entity>;
+
+    using EntityType = Entity;
 
     using WorldType = World<Entity>;
     using RegistryType = Registry<Entity>;
@@ -95,6 +153,8 @@ public:
 
     /// 返回的类型，对于 Required 返回引用，对于 Optional 返回指针
     using ReturnTupleType = std::tuple<RequiredReferenceTupleType, OptionalPointerTupleType>;
+
+    using IteratorType = internal::ViewIterator<View>;
 
 private:
     struct BasicStorageRange {
@@ -117,12 +177,20 @@ private:
 
 public:
     constexpr std::optional<ReturnTupleType> Next() {
-        // 先检查是否有 Required 组件
-        if (!initialized_) {
-            Initialize();
+        auto next_with_entity = NextWithEntity();
+        if (!next_with_entity) {
+            return std::nullopt;
         }
+        return std::get<1>(next_with_entity.value());
+    }
 
-        if (!initialized_) {
+protected:
+    explicit View(ViewerType& viewer): viewer_(viewer) {
+    }
+
+    constexpr std::optional<std::pair<EntityType, ReturnTupleType>> NextWithEntity() {
+        // 先检查是否有 Required 组件
+        if (!Initialize()) {
             return std::nullopt;
         }
 
@@ -138,14 +206,11 @@ public:
             return std::nullopt;
         } else {
             // 从 registry 中获取这个 Entity 的所有组件
-            return GetComponents(*entity);
+            return std::make_pair(entity.value(), GetComponents(*entity));
         }
     }
 
 private:
-    explicit View(ViewerType& viewer): viewer_(viewer) {
-    }
-
     constexpr WorldType& world() const {
         return viewer_.world();
     }
@@ -177,7 +242,7 @@ private:
     }
 
     /// 初始化函数，如果发生错误或者不存在 Required 的所有组件，那么 initialized_ 不会被设置为 true
-    constexpr void Initialize() {
+    constexpr void DoInitialize() {
         if (!has_required_k) {
             // 如果没有 Required 组件，那么应该从所有的 Entity 中遍历
             entity_to_components_range_ = ConstEntityToComponentsIteratorRange{
@@ -200,6 +265,14 @@ private:
         }
 
         initialized_ = true;
+    }
+
+    constexpr bool Initialize() {
+        if (!initialized_) {
+            DoInitialize();
+        }
+
+        return initialized_;
     }
 
     /// 检查实体是否符合条件
@@ -229,6 +302,14 @@ private:
     friend class World<Entity>;
     friend class Viewer<Entity>;
 
+    friend IteratorType begin(View& view) {
+        return IteratorType(view);
+    }
+
+    friend IteratorType end(View& view) {
+        return IteratorType(view, true);
+    }
+
 private:
     ViewerType& viewer_;
 
@@ -245,6 +326,55 @@ private:
     static constexpr auto required_type_ids_k = type_ids_k<Required>;
     static constexpr auto optional_type_ids_k = type_ids_k<Optional>;
     static constexpr auto exclude_type_ids_k = type_ids_k<Exclude>;
+};
+
+namespace internal {
+template <typename... input_t>
+using tuple_cat_t = decltype(std::tuple_cat(std::declval<input_t>()...));
+} // namespace internal
+
+template <AllowedEntityType Entity,
+    AllowedUniqueComponentsTupleType Required,
+    AllowedUniqueComponentsTupleType Optional,
+    AllowedUniqueComponentsTupleType Exclude>
+class View<Entity, true, Required, Optional, Exclude> : View<Entity, false, Required, Optional, Exclude> {
+public:
+    using BaseView = View<Entity, false, Required, Optional, Exclude>;
+
+    using EntityType = typename BaseView::EntityType;
+    using ViewerType = typename BaseView::ViewerType;
+
+    using ReturnTupleType = internal::tuple_cat_t<std::tuple<EntityType>, typename BaseView::ReturnTupleType>;
+    using IteratorType = internal::ViewIterator<View>;
+
+public:
+    constexpr std::optional<ReturnTupleType> Next() {
+        auto next_with_entity = BaseView::NextWithEntity();
+        if (!next_with_entity) {
+            return std::nullopt;
+        }
+
+        return std::tuple_cat(
+            std::tuple<EntityType>(std::get<0>(next_with_entity.value())),
+            std::get<1>(next_with_entity.value())
+        );
+    }
+
+protected:
+    explicit View(ViewerType& viewer): BaseView(viewer) {
+    }
+
+private:
+    friend class World<Entity>;
+    friend class Viewer<Entity>;
+
+    friend IteratorType begin(View& view) {
+        return IteratorType(view);
+    }
+
+    friend IteratorType end(View& view) {
+        return IteratorType(view, true);
+    }
 };
 } // namespace ecs
 

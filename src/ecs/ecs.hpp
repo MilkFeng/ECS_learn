@@ -10,6 +10,7 @@
 #include "scheduler.hpp"
 #include "commands.hpp"
 #include "viewer.hpp"
+#include "resource.hpp"
 #include "world.hpp"
 #include "application.hpp"
 

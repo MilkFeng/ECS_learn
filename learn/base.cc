@@ -6,8 +6,6 @@
 #include <memory>
 #include <vector>
 
-#include <bits/stl_uninitialized.h>
-
 
 class Base {
 public:
@@ -139,7 +137,17 @@ void print(const T& t) {
     std::cout << "print(const T& t)" << std::endl;
 }
 
-extern const int x;
+class TEEEE {
+public:
+
+
+private:
+    int x;
+};
+
+
+void funcccc(std::vector<int>& v, int z = 0) {
+}
 
 int main() {
     // Derived der;
@@ -155,19 +163,16 @@ int main() {
     //
     // f3(func2);
 
-    std::cout << x << std::endl;
+    TEEEE trl;
+    TEEEE ttt = trl;
+    TEEEE ttt2 = std::move(trl);
 
 
-    AlignTest a;
+    AlignTest a{};
     std::cout << "sizeof(AlignTest): " << sizeof(AlignTest) << std::endl;
     std::cout << "alignof(AlignTest): " << alignof(AlignTest) << std::endl;
     std::cout << "offsetof(AlignTest, a): " << offsetof(AlignTest, a) << std::endl;
     std::cout << "offsetof(AlignTest, b): " << offsetof(AlignTest, b) << std::endl;
-
-
-    auto squared = [](auto val) {
-        return val * val;
-    };
 
     auto* pp = &rref;
     int x = 42; // x 是 int，值是 42

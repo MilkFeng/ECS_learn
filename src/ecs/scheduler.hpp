@@ -138,25 +138,25 @@ private:
 
 
 template <typename... SystemArgs>
-class Scheduler {
+class StageScheduler {
 public:
     using SystemGraphType = SystemGraph<SystemArgs...>;
     using SystemType = typename SystemGraphType::SystemType;
     using SystemIdType = typename SystemGraphType::SystemIdType;
 
-    Scheduler() noexcept : pool_(std::thread::hardware_concurrency()) {
+    StageScheduler() noexcept : StageScheduler(std::thread::hardware_concurrency()) {
     }
 
-    explicit Scheduler(const std::size_t num_threads) : pool_(num_threads) {
+    explicit StageScheduler(const std::size_t num_threads) : pool_(num_threads) {
     }
 
-    Scheduler(const Scheduler&) = delete;
-    Scheduler& operator=(const Scheduler&) = delete;
+    StageScheduler(const StageScheduler&) = delete;
+    StageScheduler& operator=(const StageScheduler&) = delete;
 
-    Scheduler(Scheduler&&) noexcept = default;
-    Scheduler& operator=(Scheduler&&) noexcept = default;
+    StageScheduler(StageScheduler&&) noexcept = default;
+    StageScheduler& operator=(StageScheduler&&) noexcept = default;
 
-    ~Scheduler() = default;
+    ~StageScheduler() = default;
 
     [[nodiscard]] constexpr std::size_t Size() const {
         std::lock_guard lock(graph_mutex_);
@@ -199,7 +199,7 @@ public:
         return graph_.CheckCycle();
     }
 
-    constexpr void Execute(SystemArgs&... args) {
+    constexpr void Execute(SystemArgs... args) {
         // 拷贝一份图，用于拓扑排序
         SystemGraphType graph_copy;
 
@@ -226,7 +226,6 @@ public:
                 pool_.Enqueue(RunSystem, this, node.system, node.id, std::ref(args)...);
             }
         }
-
 
 
         // 等待所有 System 执行完毕
@@ -265,7 +264,8 @@ public:
     }
 
 private:
-    static void RunSystem(Scheduler* scheduler, const SystemType system, const SystemIdType id, SystemArgs&... args) {
+    static void RunSystem(StageScheduler* scheduler, const SystemType system, const SystemIdType id,
+                          SystemArgs&... args) {
         // 先执行 System
         system(args...);
 
@@ -288,6 +288,151 @@ private:
     std::queue<SystemIdType> successes_;
     std::condition_variable successes_condition_;
     mutable std::mutex successes_mutex_;
+};
+
+
+template <typename... SystemArgs>
+class Scheduler {
+public:
+    using StageSchedulerType = StageScheduler<SystemArgs...>;
+    using StageIdType = std::size_t;
+    using SystemIdType = typename StageSchedulerType::SystemIdType;
+    using StageSystemIdType = std::pair<StageIdType, SystemIdType>;
+    using SystemType = typename StageSchedulerType::SystemType;
+
+    Scheduler() noexcept : Scheduler(std::thread::hardware_concurrency()) {
+    }
+
+    explicit Scheduler(const std::size_t num_threads) : num_threads_(num_threads) {
+    }
+
+    [[nodiscard]] constexpr std::size_t StageCount() const {
+        return schedulers_.size();
+    }
+
+    [[nodiscard]] constexpr bool Empty() const {
+        return schedulers_.empty();
+    }
+
+    [[nodiscard]] constexpr bool ContainsStage(const StageIdType index) const {
+        return index < schedulers_.size();
+    }
+
+    [[nodiscard]] constexpr StageIdType GetFirstStage() const {
+        assert(!Empty());
+        return 0;
+    }
+
+    [[nodiscard]] constexpr StageIdType GetLastStage() const {
+        assert(!Empty());
+        return schedulers_.size() - 1;
+    }
+
+    constexpr StageIdType AddStageBefore(const StageIdType index) {
+        assert(ContainsStage(index) || index == schedulers_.size());
+        schedulers_.emplace(schedulers_.begin() + index, MakeScheduler());
+        return index;
+    }
+
+    constexpr StageIdType AddStageAfter(const StageIdType index) {
+        assert(ContainsStage(index));
+        schedulers_.emplace(schedulers_.begin() + index + 1, MakeScheduler());
+        return index + 1;
+    }
+
+    constexpr StageIdType AddStageToFront() {
+        schedulers_.emplace(schedulers_.begin(), MakeScheduler());
+        return 0;
+    }
+
+    constexpr StageIdType AddStageToBack() {
+        schedulers_.emplace_back(MakeScheduler());
+        return schedulers_.size() - 1;
+    }
+
+
+    constexpr void RemoveStage(const StageIdType index) {
+        assert(ContainsStage(index));
+        schedulers_.erase(schedulers_.begin() + index);
+    }
+
+    constexpr StageSystemIdType AddSystemToStage(const StageIdType index, const SystemType& system) {
+        const auto id = GetScheduler(index).AddSystem(system);
+        return {index, id};
+    }
+
+    constexpr StageSystemIdType AddSystemToFirstStage(const SystemType& system) {
+        const auto index = GetFirstStage();
+        const auto id = GetScheduler(index).AddSystem(system);
+        return {index, id};
+    }
+
+    constexpr Scheduler& AddSystemToFirstStageV(const SystemType& system) {
+        AddSystemToFirstStage(system);
+        return *this;
+    }
+
+    constexpr void RemoveSystemFromStage(const StageSystemIdType id) {
+        return RemoveSystemFromStage(id.first, id.second);
+    }
+
+    constexpr void RemoveSystemFromStage(const StageIdType index, const SystemIdType id) {
+        GetScheduler(index).RemoveSystem(id);
+    }
+
+    constexpr void AddConstraintToStage(const StageIdType index, const SystemIdType from_id, const SystemIdType to_id) {
+        GetScheduler(index).AddConstraint(from_id, to_id);
+    }
+
+    constexpr void AddConstraint(const StageSystemIdType from_id, const StageSystemIdType to_id) {
+        assert(from_id.first == to_id.first);
+        const auto index = from_id.first;
+        AddConstraintToStage(index, from_id.second, to_id.second);
+    }
+
+    constexpr void RemoveConstraintFromStage(const StageIdType index, const SystemIdType from_id,
+                                             const SystemIdType to_id) {
+        GetScheduler(index).RemoveConstraint(from_id, to_id);
+    }
+
+    constexpr bool ContainsConstraintInStage(const StageIdType index, const SystemIdType from_id,
+                                             const SystemIdType to_id) const {
+        return GetScheduler(index).ContainsConstraint(from_id, to_id);
+    }
+
+    [[nodiscard]] constexpr bool CheckCycle() const {
+        for (const auto& scheduler : schedulers_) {
+            if (scheduler.CheckCycle()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    constexpr void Execute(SystemArgs... args) {
+        for (auto& scheduler : schedulers_) {
+            scheduler->Execute(args...);
+        }
+    }
+
+private:
+    const StageSchedulerType& GetScheduler(const StageIdType index) const {
+        assert(ContainsStage(index));
+        return *schedulers_[index];
+    }
+
+    StageSchedulerType& GetScheduler(const StageIdType index) {
+        assert(ContainsStage(index));
+        return *schedulers_[index];
+    }
+
+    std::unique_ptr<StageSchedulerType> MakeScheduler() {
+        return std::make_unique<StageSchedulerType>(num_threads_);
+    }
+
+private:
+    std::vector<std::unique_ptr<StageSchedulerType>> schedulers_;
+    const std::size_t num_threads_;
 };
 } // namespace ecs
 

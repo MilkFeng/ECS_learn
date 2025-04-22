@@ -3,11 +3,32 @@
 #include <functional>
 
 namespace ecs {
+namespace internal {
+template <std::size_t N, typename... Args>
+struct FirstNArgs;
+
+template <std::size_t N, typename T, typename... Ts>
+    requires (N > 0) && (N <= sizeof...(Ts) + 1)
+struct FirstNArgs<N, T, Ts...> {
+    using Type = std::tuple<T, typename FirstNArgs<N - 1, Ts...>::Type>;
+};
+
+template <typename T, typename... Ts>
+struct FirstNArgs<0, T, Ts...> {
+    using Type = std::tuple<>;
+};
+
+
+template <std::size_t N, typename... Args>
+using FirstNArgsTuple = typename FirstNArgs<N, Args...>::Type;
+} // namespace internal
+
 /// System 节点，用于构建 System 依赖图
 template <typename... SystemArgs>
 struct SystemNode {
     using SystemIdType = std::uint32_t;
-    using SystemType = std::function<void(SystemArgs&...)>;
+    using SystemType = std::function<void(SystemArgs...)>;
+
 
     SystemIdType id{};
     SystemType system;
@@ -15,7 +36,8 @@ struct SystemNode {
     std::unordered_set<SystemIdType> tos;
     std::unordered_set<SystemIdType> froms;
 
-    SystemNode(const SystemIdType id, const SystemType &system) : id(id), system(system), tos(), froms() {
+    SystemNode(const SystemIdType id, const SystemType& system)
+        : id(id), system(system), tos(), froms() {
     }
 
     [[nodiscard]] constexpr std::size_t InDegree() const {
@@ -34,7 +56,7 @@ struct SystemNode {
         return !(*this == other);
     }
 
-    void operator()(SystemArgs&... args) const {
+    void operator()(SystemArgs... args) const {
         system(args...);
     }
 };

@@ -1,6 +1,7 @@
 #ifndef WORLD_HPP
 #define WORLD_HPP
 
+#include "resource.hpp"
 #include "registry.hpp"
 
 namespace ecs {
@@ -36,6 +37,10 @@ public:
         return viewer_;
     }
 
+    Resources<Entity>& resources() noexcept {
+        return resources_;
+    }
+
 private:
     friend class Commands<Entity>;
     friend class Viewer<Entity>;
@@ -49,6 +54,9 @@ private:
 
     // viewer 是用来遍历实体和组件的，应该让用户不要直接使用 registry
     Viewer<Entity> viewer_{*this};
+
+    // 资源管理，本身并不需要线程安全，但是提供了内部 resource 的锁
+    Resources<Entity> resources_{};
 };
 } // namespace ecs
 

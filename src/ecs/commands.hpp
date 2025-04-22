@@ -194,6 +194,31 @@ struct DetachCommand {
 
     Entity entity_;
 };
+
+template <AllowedEntityType Entity, AllowedResourceType Resource>
+struct AddResourceCommand {
+    using CommandType = Command<Entity>;
+
+    explicit AddResourceCommand(const Resource resource) noexcept : resource_(resource) {
+    }
+
+    void operator()(World<Entity>& world) const {
+        world.resources().UpsertResource(resource_);
+    }
+
+    Resource resource_;
+};
+
+template <AllowedEntityType Entity, AllowedResourceType Resource>
+struct RemoveResourceCommand {
+    using CommandType = Command<Entity>;
+
+    explicit RemoveResourceCommand() noexcept = default;
+
+    void operator()(World<Entity>& world) const {
+        world.resources().template RemoveResource<Resource>();
+    }
+};
 } // namespace internal
 
 
@@ -246,6 +271,27 @@ public:
     template <AllowedComponentType... Components>
     constexpr Commands& Detach(const Entity entity) {
         Command<Entity> command = internal::DetachCommand<Entity, Components...>(entity);
+        command_queue_.Push(command);
+        return *this;
+    }
+
+    template <AllowedResourceType Resource>
+    constexpr Commands& AddResource(Resource resource) {
+        Command<Entity> command = internal::AddResourceCommand<Entity, Resource>(resource);
+        command_queue_.Push(command);
+        return *this;
+    }
+
+    template <AllowedResourceType Resource>
+    constexpr Commands& AddResource() {
+        Command<Entity> command = internal::AddResourceCommand<Entity, Resource>(Resource{});
+        command_queue_.Push(command);
+        return *this;
+    }
+
+    template <AllowedResourceType Resource>
+    constexpr Commands& RemoveResource() {
+        Command<Entity> command = internal::RemoveResourceCommand<Entity, Resource>();
         command_queue_.Push(command);
         return *this;
     }
